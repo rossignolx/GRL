@@ -1,11 +1,8 @@
-import networkx as nx
-import matplotlib.pyplot as plt
 import os
 import random
 
 from typing import Iterator, Dict
 from labelling.label_graph import *
-from dataset.read_graphs import GraphLogicDataset
 
 def generate_graph(
         method: str,
@@ -38,6 +35,11 @@ def write_graphs(
     total_1s = 0
     total_graphs = 0
     total_graph_1s = 0
+    total_connected = 0
+    total_labeled = 0
+
+    prev_connected = False
+    prev_labeled = False
 
     graphs = []
     possible_nodes = range(min_nodes, max_nodes + 1)
@@ -51,14 +53,43 @@ def write_graphs(
             params,
         )
 
+        # Empty graph
+        if not list(graph.edges()):
+            continue
+
         if formula == 'formula1':
             node_labels, graph_labels = connected_to_triangle_not_neighbour(graph)
         else:
             raise ValueError()
 
         # Node class balance
-        if abs((sum(node_labels) / no_nodes) - 0.5) > 0.05:
-            continue
+        if prev_labeled:
+            if graph_labels == 1:
+               continue
+            else:
+                prev_labeled = False
+        else:
+            if graph_labels == 0:
+                continue
+            else:
+                prev_labeled = True
+
+        if prev_connected:
+            if nx.is_connected(graph):
+               continue
+            else:
+                prev_connected = False
+        else:
+            if not nx.is_connected(graph):
+                continue
+            else:
+                prev_connected = True
+
+        if nx.is_connected(graph):
+            total_connected += 1
+
+        if graph_labels == 1:
+            total_labeled += 1
 
         label_graph(graph, node_labels, graph_labels)
         graphs.append(graph)
@@ -68,13 +99,15 @@ def write_graphs(
         total_1s += sum(node_labels)
         total_graph_1s += graph_labels
 
-        if total_graphs % 1000 == 0:
+        if total_graphs % 200 == 0:
             print("Generated {} graphs...".format(total_graphs))
 
     print("Total Nodes: {}, Total Node 1s: {}, Percentage 1s: {}%".format(total_nodes, total_1s, (total_1s / total_nodes) * 100))
     print("Total Graphs: {}, Total Graph 1s: {}, Percentage 1s: {}%".format(no_graphs, total_graph_1s, (total_graph_1s / no_graphs) * 100))
+    print("Total Labeled Graphs: {}".format(total_labeled))
+    print("Total Connected Graphs: {}".format(total_connected))
 
-    file_path = os.path.join(data_dir, formula, "raw")
+    file_path = os.path.join(data_dir, formula)
     os.makedirs(file_path, 0o777, exist_ok=True)
 
     full_path = os.path.join(file_path, "data.txt")
@@ -93,13 +126,10 @@ def write_graphs(
                 f.write("{} {} {}\n".format(label, no_edges, edges))
 
 write_graphs(
-    2000,
-    5, 12,
+    3000,
+    10, 10,
     'erdos',
     'formula1',
     {"p": 0.15},
     "data/"
 )
-
-d = GraphLogicDataset("data/formula1/raw")
-print(d)

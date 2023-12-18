@@ -10,7 +10,8 @@ def connected_to_triangle_not_neighbour(
     node_triangles = list(nx.triangles(graph).values())
     triangle_present = sum(node_triangles) > 0
     if not triangle_present:
-        return list(np.zeros(len(graph))), 0
+        zeros = [0 for _ in range(len(graph))]
+        return zeros, 0
 
     present = False
     res = []

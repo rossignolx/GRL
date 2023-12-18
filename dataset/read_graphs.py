@@ -1,6 +1,7 @@
 from typing import Union, List, Tuple
 
 import networkx as nx
+import shutil
 import torch
 import os
 from torch_geometric.data import InMemoryDataset, Data
@@ -21,7 +22,7 @@ class GraphLogicDataset(InMemoryDataset):
     def process(self):
         data_list = []
 
-        full_path = os.path.join(self.root, 'data.txt')
+        full_path = os.path.join(self.raw_dir, 'data.txt')
         with open(full_path, 'r') as f:
             no_graphs = int(f.readline().strip())
             for _ in range(no_graphs):
@@ -42,11 +43,11 @@ class GraphLogicDataset(InMemoryDataset):
                         graph.add_edge(id, neighbour)
                         graph.add_edge(neighbour, id)
 
-                node_labels = torch.Tensor(node_labels)
+                node_labels = torch.tensor(node_labels, dtype=torch.long)
 
                 # Constant features, for now.
-                edges = torch.Tensor(list(graph.edges))
-                node_features = torch.ones(no_nodes)
+                edges = torch.tensor(list(graph.edges), dtype=torch.long)
+                node_features = torch.ones(no_nodes).view(-1, 1)
 
                 data = Data(
                         x=node_features,
@@ -62,4 +63,7 @@ class GraphLogicDataset(InMemoryDataset):
         torch.save((data, slices), self.processed_paths[0])
 
     def download(self):
-        pass
+        r, variant = os.path.split(self.root)
+        _, formula_name = os.path.split(r)
+
+        shutil.copy('data/{}/data.txt'.format(formula_name), self.raw_dir)
