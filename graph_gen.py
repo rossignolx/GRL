@@ -9,7 +9,7 @@ def generate_graph(
         no_nodes: int,
         params: Dict,
 ) -> nx.Graph:
-    if method == 'empty' :
+    if method == 'empty':
         return nx.empty_graph(n=no_nodes)
     elif method == 'erdos':
         p = params.get("p", 0.5)
@@ -23,7 +23,8 @@ def generate_graph(
         raise ValueError()
 
 def write_graphs(
-        no_graphs: int,
+        split: str,
+        min_graphs: int,
         min_nodes: int,
         max_nodes: int,
         graph_method: str,
@@ -35,17 +36,21 @@ def write_graphs(
     total_1s = 0
     total_graphs = 0
     total_graph_1s = 0
-    total_connected = 0
     total_labeled = 0
 
-    prev_connected = False
+    #is_train = split == 'train'
     prev_labeled = False
 
     graphs = []
     possible_nodes = range(min_nodes, max_nodes + 1)
     while True:
-        if total_graphs == no_graphs:
+        min_graphs_achieved = total_graphs > min_graphs
+        if min_graphs_achieved:
             break
+            # node_balanced = (abs((total_1s / total_nodes) - 0.5) < 0.05)
+            # if node_balanced:
+            #     break
+
         no_nodes = random.choice(possible_nodes)
         graph = generate_graph(
             graph_method,
@@ -62,31 +67,26 @@ def write_graphs(
         else:
             raise ValueError()
 
-        # Node class balance
-        if prev_labeled:
-            if graph_labels == 1:
-               continue
+        # Balancing Logic. Quite ugly.
+        if not min_graphs_achieved:
+            if prev_labeled:
+                if graph_labels == 1:
+                   continue
+                else:
+                    prev_labeled = False
             else:
-                prev_labeled = False
-        else:
-            if graph_labels == 0:
-                continue
-            else:
-                prev_labeled = True
+                if graph_labels == 0:
+                    continue
+                else:
+                    percent = sum(node_labels) / len(node_labels)
+                    if percent < 0.8:
+                        continue
+                    prev_labeled = True
 
-        if prev_connected:
-            if nx.is_connected(graph):
-               continue
-            else:
-                prev_connected = False
         else:
-            if not nx.is_connected(graph):
+            percent = sum(node_labels) / len(node_labels)
+            if percent < 0.8:
                 continue
-            else:
-                prev_connected = True
-
-        if nx.is_connected(graph):
-            total_connected += 1
 
         if graph_labels == 1:
             total_labeled += 1
@@ -103,20 +103,19 @@ def write_graphs(
             print("Generated {} graphs...".format(total_graphs))
 
     print("Total Nodes: {}, Total Node 1s: {}, Percentage 1s: {}%".format(total_nodes, total_1s, (total_1s / total_nodes) * 100))
-    print("Total Graphs: {}, Total Graph 1s: {}, Percentage 1s: {}%".format(no_graphs, total_graph_1s, (total_graph_1s / no_graphs) * 100))
+    print("Total Graphs: {}, Total Graph 1s: {}, Percentage 1s: {}%".format(total_graphs, total_graph_1s, (total_graph_1s / total_graphs) * 100))
     print("Total Labeled Graphs: {}".format(total_labeled))
-    print("Total Connected Graphs: {}".format(total_connected))
 
-    file_path = os.path.join(data_dir, formula)
+    file_path = os.path.join(data_dir, formula, split)
     os.makedirs(file_path, 0o777, exist_ok=True)
 
     full_path = os.path.join(file_path, "data.txt")
 
     with open(full_path, 'w') as f:
-        f.write("{}\n".format(no_graphs))
+        f.write("{}\n".format(total_graphs))
 
         for graph in graphs:
-            f.write("{}\n".format(len(graph)))
+            f.write("{} {}\n".format(len(graph), graph.graph['label']))
             for node in graph.nodes(data=True):
                 idx, attrs = node
                 edges = " ".join(map(str, list(graph[idx].keys())))
@@ -125,11 +124,35 @@ def write_graphs(
                 label = attrs['label']
                 f.write("{} {} {}\n".format(label, no_edges, edges))
 
+NO_NODES = 20
 write_graphs(
-    3000,
-    10, 10,
+    'train',
+    2000,
+    NO_NODES, NO_NODES,
     'erdos',
     'formula1',
     {"p": 0.15},
     "data/"
 )
+
+write_graphs(
+    'val',
+    500,
+    NO_NODES, NO_NODES,
+    'erdos',
+    'formula1',
+    {"p": 0.15},
+    "data/"
+)
+
+write_graphs(
+    'test',
+    500,
+    NO_NODES, NO_NODES,
+    'erdos',
+    'formula1',
+    {"p": 0.15},
+    "data/"
+)
+
+

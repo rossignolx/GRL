@@ -26,7 +26,7 @@ class GraphLogicDataset(InMemoryDataset):
         with open(full_path, 'r') as f:
             no_graphs = int(f.readline().strip())
             for _ in range(no_graphs):
-                no_nodes = int(f.readline().strip())
+                no_nodes = int(f.readline().strip().split(" ")[0])
 
                 node_labels = []
                 graph = nx.DiGraph()
@@ -64,6 +64,7 @@ class GraphLogicDataset(InMemoryDataset):
 
     def download(self):
         r, variant = os.path.split(self.root)
-        _, formula_name = os.path.split(r)
+        r, split = os.path.split(r)
+        r, formula_name = os.path.split(r)
 
-        shutil.copy('data/{}/data.txt'.format(formula_name), self.raw_dir)
+        shutil.copy('data/{}/{}/data.txt'.format(formula_name, split), self.raw_dir)

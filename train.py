@@ -1,44 +1,86 @@
-from dataset.read_graphs import GraphLogicDataset
 import torch
-import torch.nn as nn
-import numpy as np
+import os
 import torch.nn.functional as F
-from torch_geometric.data import Data
+import argparse
+import sys
+from dataset.read_graphs import GraphLogicDataset
+
 from torch_scatter import scatter_add
-import networkx as nx
-
-from k_gnn import ThreeMalkin, ThreeGlobal, TwoMalkin
+from k_gnn import ThreeMalkin, ThreeGlobal, TwoMalkin, ConnectedThreeMalkin
 from k_gnn import DataLoader, GraphConv
+from utils.utils import get_transform
 
-ORDER_IS_THREE=True
+parser = argparse.ArgumentParser()
+parser.add_argument('-layers', type=int, default=2)   # Number of GNN layers
+parser.add_argument('-method', type=str, default='ThreeMalkin')    # Dataset being used
+parser.add_argument('-repeat', type=int, default=1)
+args = parser.parse_args()
 
+METHOD = args.method
+transform = get_transform(METHOD)
+
+ORDER_IS_THREE = 'Three' in args.method
+LAYERS = args.layers
+REPEAT = args.repeat
+
+FORMULA='formula1'
 BATCH=20
-LAYERS=1
 WIDTH=64
-EPOCHS=100
-FRAC=0.1
+EPOCHS=500
 LR = 1e-3
-class MyPreTransform:
-    def __call__(self, data):
-        data = ThreeGlobal()(data)
-        return data
 
-dataset = GraphLogicDataset(
-    "variants/formula1/3Global",
-    pre_transform=MyPreTransform()
+LOG_DIR='logs/kgnn'
+LOG_FILE=f'{METHOD}-{FORMULA}-epochs-{EPOCHS}-width-{WIDTH}-lr-{LR}-repeat-{REPEAT}-layers-{LAYERS}.txt'
+print("Saving to {}".format(LOG_FILE))
+
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_PATH = os.path.join(LOG_DIR, LOG_FILE)
+log_file_handler = open(LOG_PATH, 'w')
+
+train_dataset = GraphLogicDataset(
+    "variants/{}/train/{}".format(FORMULA, METHOD),
+    pre_transform=transform
 )
-dataset = dataset.shuffle()
+val_dataset = GraphLogicDataset(
+    "variants/{}/val/{}".format(FORMULA, METHOD),
+    pre_transform=transform
+)
+test_dataset = GraphLogicDataset(
+    "variants/{}/test/{}".format(FORMULA, METHOD),
+    pre_transform=transform
+)
+
 
 if not ORDER_IS_THREE:
-    dataset.data.iso_type_2 = torch.unique(dataset.data.iso_type_2, True, True)[1]
-    num_i_2 = dataset.data.iso_type_2.max().item() + 1
-    dataset.data.iso_type_2 = F.one_hot(
-        dataset.data.iso_type_2, num_classes=num_i_2).to(torch.float)
+    train_dataset.data.iso_type_2 = torch.unique(train_dataset.data.iso_type_2, True, True)[1]
+    num_i_2 = train_dataset.data.iso_type_2.max().item() + 1
+    train_dataset.data.iso_type_2 = F.one_hot(
+        train_dataset.data.iso_type_2, num_classes=num_i_2).to(torch.float)
+
+    val_dataset.data.iso_type_2 = torch.unique(val_dataset.data.iso_type_2, True, True)[1]
+    num_i_2 = val_dataset.data.iso_type_2.max().item() + 1
+    val_dataset.data.iso_type_2 = F.one_hot(
+        val_dataset.data.iso_type_2, num_classes=num_i_2).to(torch.float)
+    
+    test_dataset.data.iso_type_2 = torch.unique(test_dataset.data.iso_type_2, True, True)[1]
+    num_i_2 = test_dataset.data.iso_type_2.max().item() + 1
+    test_dataset.data.iso_type_2 = F.one_hot(
+        test_dataset.data.iso_type_2, num_classes=num_i_2).to(torch.float)
 else:
-    dataset.data.iso_type_3 = torch.unique(dataset.data.iso_type_3, True, True)[1]
-    num_i_3 = dataset.data.iso_type_3.max().item() + 1
-    dataset.data.iso_type_3 = F.one_hot(
-        dataset.data.iso_type_3, num_classes=num_i_3).to(torch.float)
+    train_dataset.data.iso_type_3 = torch.unique(train_dataset.data.iso_type_3, True, True)[1]
+    num_i_3 = train_dataset.data.iso_type_3.max().item() + 1
+    train_dataset.data.iso_type_3 = F.one_hot(
+        train_dataset.data.iso_type_3, num_classes=num_i_3).to(torch.float)
+
+    val_dataset.data.iso_type_3 = torch.unique(val_dataset.data.iso_type_3, True, True)[1]
+    num_i_3 = val_dataset.data.iso_type_3.max().item() + 1
+    val_dataset.data.iso_type_3 = F.one_hot(
+        val_dataset.data.iso_type_3, num_classes=num_i_3).to(torch.float)
+
+    test_dataset.data.iso_type_3 = torch.unique(test_dataset.data.iso_type_3, True, True)[1]
+    num_i_3 = test_dataset.data.iso_type_3.max().item() + 1
+    test_dataset.data.iso_type_3 = F.one_hot(
+        test_dataset.data.iso_type_3, num_classes=num_i_3).to(torch.float)
 
 class Net(torch.nn.Module):
     def __init__(self):
@@ -105,13 +147,12 @@ def eval(model, loader):
     return correct / total_nodes
 
 
-
-def train(model: Net, train_loader, test_loader):
+def train(model: Net, train_loader, val_loader):
     model.reset_parameters()
 
     optim = torch.optim.Adam(model.parameters(), lr=LR)
     losses = []
-    test_accuracies = []
+    val_accuracies = []
 
     for i in range(EPOCHS):
         model.train()
@@ -129,33 +170,28 @@ def train(model: Net, train_loader, test_loader):
         avg_loss = total_loss / len(train_loader.dataset)
         losses.append(avg_loss)
 
-        test_accuracy = eval(model, test_loader)
-        test_accuracies.append(test_accuracy)
+        val_accuracy = eval(model, val_loader)
+        val_accuracies.append(val_accuracy)
 
-        print("Epoch {}/{}. Avg Train Loss: {:3f}, Test Accuracy: {}".format(i, EPOCHS, avg_loss, test_accuracy))
-    return losses, test_accuracies
+        log_text = "Epoch {}/{}. Avg Train Loss: {:3f}, Val Accuracy: {}".format(i, EPOCHS, avg_loss, val_accuracy)
+        print(log_text)
+        log_file_handler.write(log_text + "\n")
+    return losses, val_accuracies
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Net().to(device)
 
-test_mask = np.full(len(dataset), False)
-test_size = int(FRAC * len(dataset))
-test_mask[-test_size:] = True
-
-test_dataset = dataset[test_mask]
-train_dataset = dataset[~test_mask]
-
-# val_size = int(FRAC * len(rest_dataset))
-# val_mask = np.full(len(rest_dataset), False)
-# val_mask[val_size:] = True
-# val_dataset = rest_dataset[val_mask]
-# train_dataset = rest_dataset[~val_mask]
-
 train_loader = DataLoader(train_dataset, batch_size=20, shuffle=True)
-#val_loader = DataLoader(val_dataset, batch_size=20)
+val_loader = DataLoader(val_dataset, batch_size=20)
 test_loader = DataLoader(test_dataset, batch_size=20)
 
-train(model, train_loader, test_loader)
+train(model, train_loader, val_loader)
+test_accuracy = eval(model, test_loader)
+
+text = "Final Test Accuracy: {}".format(test_accuracy)
+print(text)
+log_file_handler.write(text)
+log_file_handler.close()
 
 
 
