@@ -1,3 +1,8 @@
 .idea/
+logs/
+logs.bak/
+data.bak/
 data/
+ckpt/
+variants/
 **/__pycache__/
